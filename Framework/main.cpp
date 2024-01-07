@@ -1,8 +1,18 @@
+#if defined(_DEBUG) || defined(DEBUG)
+//ãƒ¡ãƒ¢ãƒªãƒ¼ãƒªãƒ¼ã‚¯æ¤œå‡º
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#endif
+
 #include "App.h"
 
 int wmain(int argc, wchar_t** argv, wchar_t** evnp)
 {
-	//ƒAƒvƒŠƒP[ƒVƒ‡ƒ“Às
+#if defined(_DEBUG) || defined(DEBUG)
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
+
+	//ã‚¢ãƒ—ãƒªã‚±ãƒ¼ã‚·ãƒ§ãƒ³å®Ÿè¡Œ
 	App app(960, 540);
 	app.Run();
 
