@@ -16,6 +16,8 @@ namespace //無名名前空間. 中の変数はすべて内部リンケージになる
 	}
 }
 
+
+
 App::App(uint32_t width, uint32_t height)
 	: m_hInst(nullptr)
 	, m_hWnd(nullptr)
@@ -170,7 +172,7 @@ bool App::InitD3D()
 	auto hr = D3D12CreateDevice(
 		nullptr,					//使用するアダプタ. nullptrはデフォルト
 		D3D_FEATURE_LEVEL_11_0,		//デバイスの正常な作成に必要な最小機能レベル
-		IID_PPV_ARGS(&m_pDevice));	//生成されたDirect3D12デバイス
+		IID_PPV_ARGS(m_pDevice.GetAddressOf()));	//生成されたDirect3D12デバイス
 	if (FAILED(hr))
 	{
 		return false;
@@ -184,7 +186,7 @@ bool App::InitD3D()
 		desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;	//コマンドキューのフラグ
 		desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
 
-		hr = m_pDevice->CreateCommandQueue(&desc, IID_PPV_ARGS(&m_pQueue));
+		hr = m_pDevice->CreateCommandQueue(&desc, IID_PPV_ARGS(m_pQueue.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return false;
@@ -194,8 +196,8 @@ bool App::InitD3D()
 	//スワップチェインの作成
 	{
 		//DXGIファクトリーの生成. DXGIファクトリーはビデオグラフィックの設定の列挙や指定に使用したり、スワップチェインの作成に使用する
-		IDXGIFactory4* pFactory = nullptr;
-		hr = CreateDXGIFactory1(IID_PPV_ARGS(&pFactory));
+		ComPtr<IDXGIFactory4> pFactory = nullptr;
+		hr = CreateDXGIFactory1(IID_PPV_ARGS(pFactory.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return false;
@@ -220,11 +222,11 @@ bool App::InitD3D()
 		desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;	//スワップチェインの動作オプション
 
 		//スワップチェインの生成
-		IDXGISwapChain* pSwapChain = nullptr;
-		hr = pFactory->CreateSwapChain(m_pQueue, &desc, &pSwapChain);
+		ComPtr<IDXGISwapChain> pSwapChain = nullptr;
+		hr = pFactory->CreateSwapChain(m_pQueue.Get(), &desc, pSwapChain.GetAddressOf());
 		if (FAILED(hr))
 		{
-			SafeRelease(pFactory);
+			pFactory.Reset();
 			return false;
 		}
 
@@ -232,11 +234,11 @@ bool App::InitD3D()
 		//IDXGISwapChain3ではバック バッファーのインデックスの取得と色空間のサポートが追加されている
 
 		// IDXGISwapChain3の取得
-		hr = pSwapChain->QueryInterface(IID_PPV_ARGS(&m_pSwapChain));
+		hr = pSwapChain->QueryInterface(IID_PPV_ARGS(m_pSwapChain.GetAddressOf()));
 		if (FAILED(hr))
 		{
-			SafeRelease(pFactory);
-			SafeRelease(pSwapChain);
+			pFactory.Reset();
+			pSwapChain.Reset();
 			return false;
 		}
 
@@ -244,8 +246,8 @@ bool App::InitD3D()
 		m_FrameIndex = m_pSwapChain->GetCurrentBackBufferIndex();
 
 		//不要になったので解放
-		SafeRelease(pFactory);
-		SafeRelease(pSwapChain);
+		pFactory.Reset();
+		pSwapChain.Reset();
 	}
 
 	//コマンドアロケータの生成
@@ -256,7 +258,7 @@ bool App::InitD3D()
 		{
 			hr = m_pDevice->CreateCommandAllocator(
 				D3D12_COMMAND_LIST_TYPE_DIRECT,	//コマンドリストの種類. D3D12_COMMAND_LIST_TYPE_DIRECT は GPUで実行できるコマンドバッファーを指定
-				IID_PPV_ARGS(&m_pCmdAllocator[i]));	//生成されたコマンドアロケータ
+				IID_PPV_ARGS(m_pCmdAllocator[i].GetAddressOf()));	//生成されたコマンドアロケータ
 			if (FAILED(hr))
 			{
 				return false;
@@ -269,9 +271,9 @@ bool App::InitD3D()
 		hr = m_pDevice->CreateCommandList(
 			0,	//コマンドリストのノードマスク. マルチGPUの際に使用するマスク
 			D3D12_COMMAND_LIST_TYPE_DIRECT,	//コマンドリストの種類. CreateCommandAllocator()と同じ
-			m_pCmdAllocator[m_FrameIndex],	//コマンドアロケータ
+			m_pCmdAllocator[m_FrameIndex].Get(),	//コマンドアロケータ
 			nullptr,	//パイプラインステートオブジェクト. パイプラインを指定できる. nullptrを指定するとデフォルトのパイプラインが使用される
-			IID_PPV_ARGS(&m_pCmdList));	//生成されたコマンドリスト
+			IID_PPV_ARGS(m_pCmdList.GetAddressOf()));	//生成されたコマンドリスト
 		if (FAILED(hr))
 		{
 			return false;
@@ -297,7 +299,7 @@ bool App::InitD3D()
 		desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
 
 		//ディスクリプタヒープの生成
-		hr = m_pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_pHeapRTV));
+		hr = m_pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(m_pHeapRTV.GetAddressOf()));
 		if (FAILED(hr))
 		{
 			return false;
@@ -309,7 +311,7 @@ bool App::InitD3D()
 
 		for (auto i = 0u; i < FrameCount; i++)
 		{
-			hr = m_pSwapChain->GetBuffer(i, IID_PPV_ARGS(&m_pColorBuffers[i]));	//スワップチェインからバッファを取得
+			hr = m_pSwapChain->GetBuffer(i, IID_PPV_ARGS(m_pColorBuffers[i].GetAddressOf()));	//スワップチェインからバッファを取得
 			if (FAILED(hr))
 			{
 				return false;
@@ -323,7 +325,7 @@ bool App::InitD3D()
 			viewDesc.Texture2D.PlaneSlice = 0;	//テクスチャの面の指定(平面を複数枚持つデータではないので0を指定)
 
 			//レンダーターゲットビューの生成
-			m_pDevice->CreateRenderTargetView(m_pColorBuffers[i], &viewDesc, handle);
+			m_pDevice->CreateRenderTargetView(m_pColorBuffers[i].Get(), &viewDesc, handle);
 
 			m_HandleRTV[i] = handle;
 			handle.ptr += incrementSize;
@@ -341,7 +343,7 @@ bool App::InitD3D()
 		hr = m_pDevice->CreateFence(
 			m_FenceCounter[m_FrameIndex],	//フェンスの初期値
 			D3D12_FENCE_FLAG_NONE,	//フェンスのフラグ
-			IID_PPV_ARGS(&m_pFence));	//生成されたフェンス
+			IID_PPV_ARGS(m_pFence.GetAddressOf()));	//生成されたフェンス
 		if (FAILED(hr))
 		{
 			return false;
@@ -376,32 +378,32 @@ void App::TermD3D()
 	}
 
 	//フェンス破棄
-	SafeRelease(m_pFence);
+	m_pFence.Reset();
 
 	//レンダーターゲットビュー破棄
-	SafeRelease(m_pHeapRTV);
+	m_pHeapRTV.Reset();
 	for (auto i = 0; i < FrameCount; i++)
 	{
-		SafeRelease(m_pColorBuffers[i]);
+		m_pColorBuffers[i].Reset();
 	}
 
 	//コマンドリストの破棄
-	SafeRelease(m_pCmdList);
+	m_pCmdList.Reset();
 
 	//コマンドアロケーターの破棄
 	for (auto i = 0; i < FrameCount; i++)
 	{
-		SafeRelease(m_pCmdAllocator[i]);
+		m_pCmdAllocator[i].Reset();
 	}
-	
+
 	//スワップチェインの破棄
-	SafeRelease(m_pSwapChain);
+	m_pSwapChain.Reset();
 
 	//コマンドキューの破棄
-	SafeRelease(m_pQueue);
+	m_pQueue.Reset();
 
 	//デバイスの破棄
-	SafeRelease(m_pDevice);
+	m_pDevice.Reset();
 }
 
 /// <summary>
@@ -411,13 +413,13 @@ void App::Render()
 {
 	//コマンドの記録開始
 	m_pCmdAllocator[m_FrameIndex]->Reset();
-	m_pCmdList->Reset(m_pCmdAllocator[m_FrameIndex], nullptr);
+	m_pCmdList->Reset(m_pCmdAllocator[m_FrameIndex].Get(), nullptr);
 
 	//リソースバリアの設定. リソースバリアとはGPUの表示処理中に描画コマンドが発行され、表示がバグるといったような割り込みによるバグを防ぐために、使用中の割り込みを排除する仕組み
 	D3D12_RESOURCE_BARRIER barrier = {};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;	//リソースバリアの種類. D3D12_RESOURCE_BARRIER_TYPE_TRANSITIONはリソースの状態を変更する
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;	//リソースバリアのフラグ
-	barrier.Transition.pResource = m_pColorBuffers[m_FrameIndex];	//リソースバリアの対象となるリソース
+	barrier.Transition.pResource = m_pColorBuffers[m_FrameIndex].Get();	//リソースバリアの対象となるリソース
 	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;	//リソースバリアの変更前のリソースの状態. D3D12_RESOURCE_STATE_PRESENT はリソースがスワップチェインに表示されている状態
 	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;	//リソースバリアの変更後のリソースの状態. D3D12_RESOURCE_STATE_RENDER_TARGETはリソースがレンダーターゲットとして使用されている状態
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;	//リソースバリアの対象となるサブリソース
@@ -442,7 +444,7 @@ void App::Render()
 	//リソースバリアの設定
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;	//リソースバリアの種類. D3D12_RESOURCE_BARRIER_TYPE_TRANSITIONはリソースの状態を変更する
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;	//リソースバリアのフラグ
-	barrier.Transition.pResource = m_pColorBuffers[m_FrameIndex];	//リソースバリアの対象となるリソース
+	barrier.Transition.pResource = m_pColorBuffers[m_FrameIndex].Get();	//リソースバリアの対象となるリソース
 	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;	//リソースバリアの変更前のリソースの状態. D3D12_RESOURCE_STATE_RENDER_TARGETはリソースがレンダーターゲットとして使用されている状態
 	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;	//リソースバリアの変更後のリソースの状態. D3D12_RESOURCE_STATE_PRESENTはリソースがスワップチェインに表示されている状態
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;	//リソースバリアの対象となるサブリソース
@@ -454,8 +456,8 @@ void App::Render()
 	m_pCmdList->Close();
 
 	//コマンドの実行
-	ID3D12CommandList* ppCmdLists[] = { m_pCmdList };		//コマンドリストの配列(コマンドキューではない)
-	m_pQueue->ExecuteCommandLists(1, ppCmdLists);	//コマンドリストの実行
+	ComPtr<ID3D12CommandList> ppCmdLists[] = { m_pCmdList.Get() };		//コマンドリストの配列(コマンドキューではない)
+	m_pQueue->ExecuteCommandLists(1, ppCmdLists->GetAddressOf());	//コマンドリストの実行
 
 	//画面に表示
 	Present(1);
@@ -470,7 +472,7 @@ void App::WaitGpu()
 	//GPUの実行中に解放してしまうとアプリケーションのクラッシュや、グラフィックスドライバーが落ちる場合があるので、実行完了まで待機する
 	//シグナル処理
 	m_pQueue->Signal(
-		m_pFence,		//フェンスのポインタ 
+		m_pFence.Get(),		//フェンスのポインタ 
 		m_FenceCounter[m_FrameIndex]); //フェンスに設定する値
 
 	//フェンスの値が更新されるまで待機するイベントを設定
@@ -500,7 +502,7 @@ void App::Present(uint32_t interval)
 	//コマンドキューの実行が完了(=GPU上のコマンド処理終了)したときにフェンスの値を更新する
 	const auto currentValue = m_FenceCounter[m_FrameIndex];
 	m_pQueue->Signal(
-		m_pFence,		//フェンスのポインタ 
+		m_pFence.Get(),		//フェンスのポインタ 
 		currentValue); //フェンスに設定する値
 
 	//スワップ処理(m_pSwapChain-> Present())を呼んだので、バックバッファのインデックスを更新
