@@ -1,4 +1,5 @@
 #include "App.h"
+#include <cassert>
 
 namespace //無名名前空間. 中の変数はすべて内部リンケージになる
 {
@@ -41,6 +42,11 @@ void App::Run()
 bool App::InitApp()
 {
 	if (!InitWnd())		// ウィンドウの初期化
+	{
+		return false;
+	}
+
+	if (!InitD3D())		// Direct3Dの初期化
 	{
 		return false;
 	}
@@ -120,6 +126,9 @@ bool App::InitWnd()
 
 void App::TermApp()
 {
+	//Direct3Dの終了処理
+	TermD3D();
+
 	//ウィンドウの終了処理
 	TermWnd();
 }
@@ -147,6 +156,10 @@ void App::MainLoop()
 		{
 			TranslateMessage(&msg);		//キー入力メッセージの処理
 			DispatchMessage(&msg);		//ウィンドウプロシージャにメッセージを送る
+		}
+		else
+		{
+			Render();	//描画処理
 		}
 	}
 }
@@ -196,9 +209,10 @@ bool App::InitD3D()
 		desc.BufferDesc.RefreshRate.Denominator = 1;	//リフレッシュレートの分子
 		desc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;	//スキャンラインの描画順序
 		desc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;	//ウィンドウ描画時のスケーリングの指定. バックバッファのサイズ通りに描画したり、ウィンドウサイズに合わせるなど指定可能
+		desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;	//バックバッファのフォーマット
 		desc.SampleDesc.Count = 1;	//マルチサンプリングの数
 		desc.SampleDesc.Quality = 0;	//マルチサンプリングの品質
-		desc.BufferUsage = DXGI_USAGE_BACK_BUFFER;	//バックバッファの使用法. DXGI_USAGE_BACK_BUFFERはバックバッファとして使用することを示す
+		desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;	//バックバッファの使用法. DXGI_USAGE_RENDER_TARGET_OUTPUTはバックバッファをレンダーターゲットとして使用する
 		desc.BufferCount = FrameCount;	//スワップチェインのバッファ数
 		desc.OutputWindow = m_hWnd;	//ウィンドウハンドル
 		desc.Windowed = TRUE;	//ウィンドウモードかフルスクリーンモードか
@@ -317,21 +331,77 @@ bool App::InitD3D()
 	}
 
 	//フェンスの作成
-	hr = m_pDevice->CreateFence(
-		m_FenceCounter[m_FrameIndex],	//フェンスの初期値
-		D3D12_FENCE_FLAG_NONE,	//フェンスのフラグ
-		IID_PPV_ARGS(&m_pFence));	//生成されたフェンス
-	if (FAILED(hr))
 	{
-		return false;
+		//フェンスカウンタのリセット
+		for (auto i = 0; i < FrameCount; i++)
+		{
+			m_FenceCounter[i] = 0;
+		}
+
+		hr = m_pDevice->CreateFence(
+			m_FenceCounter[m_FrameIndex],	//フェンスの初期値
+			D3D12_FENCE_FLAG_NONE,	//フェンスのフラグ
+			IID_PPV_ARGS(&m_pFence));	//生成されたフェンス
+		if (FAILED(hr))
+		{
+			return false;
+		}
+
+		m_FenceCounter[m_FrameIndex]++;
+
+		//描画処理が終わるまで待機するイベントの作成
+		m_FenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+		if (m_FenceEvent == nullptr)
+		{
+			return false;
+		}
 	}
 
-	//描画処理が終わるまで待機するイベントの作成
-	m_FenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-	if (m_FenceEvent == nullptr)
+	//コマンドリストを閉じる
+	m_pCmdList->Close();
+
+	return true;
+}
+
+void App::TermD3D()
+{
+	//GPU処理の完了を待機
+	WaitGpu();
+
+	//イベント破棄
+	if (m_FenceEvent != nullptr)
 	{
-		return false;
+		CloseHandle(m_FenceEvent);
+		m_FenceEvent = nullptr;
 	}
+
+	//フェンス破棄
+	SafeRelease(m_pFence);
+
+	//レンダーターゲットビュー破棄
+	SafeRelease(m_pHeapRTV);
+	for (auto i = 0; i < FrameCount; i++)
+	{
+		SafeRelease(m_pColorBuffers[i]);
+	}
+
+	//コマンドリストの破棄
+	SafeRelease(m_pCmdList);
+
+	//コマンドアロケーターの破棄
+	for (auto i = 0; i < FrameCount; i++)
+	{
+		SafeRelease(m_pCmdAllocator[i]);
+	}
+	
+	//スワップチェインの破棄
+	SafeRelease(m_pSwapChain);
+
+	//コマンドキューの破棄
+	SafeRelease(m_pQueue);
+
+	//デバイスの破棄
+	SafeRelease(m_pDevice);
 }
 
 /// <summary>
@@ -389,6 +459,67 @@ void App::Render()
 
 	//画面に表示
 	Present(1);
+}
+
+void App::WaitGpu()
+{
+	assert(m_pQueue != nullptr);
+	assert(m_pFence != nullptr);
+	assert(m_FenceEvent != nullptr);
+
+	//GPUの実行中に解放してしまうとアプリケーションのクラッシュや、グラフィックスドライバーが落ちる場合があるので、実行完了まで待機する
+	//シグナル処理
+	m_pQueue->Signal(
+		m_pFence,		//フェンスのポインタ 
+		m_FenceCounter[m_FrameIndex]); //フェンスに設定する値
+
+	//フェンスの値が更新されるまで待機するイベントを設定
+	m_pFence->SetEventOnCompletion(
+		m_FenceCounter[m_FrameIndex],	//フェンスの値
+		m_FenceEvent);	//イベントのハンドル
+
+	WaitForSingleObjectEx(		//更新の待機
+		m_FenceEvent,	//イベントのハンドル
+		INFINITE,		//タイムアウト時間
+		FALSE);			//完了待機終了条件の設定
+
+	//次のフレームのフェンスカウンタを増やす
+	m_FenceCounter[m_FrameIndex]++;
+}
+
+void App::Present(uint32_t interval)
+{
+	//表示処理も明示的に行う必要がある
+
+	//画面に表示
+	m_pSwapChain->Present(
+		interval,		//垂直同期とフレーム表示の同期方法. 0は垂直同期なし. 1は垂直同期後に表示
+		0);		//表示オプション
+
+	//シグナル処理
+	//コマンドキューの実行が完了(=GPU上のコマンド処理終了)したときにフェンスの値を更新する
+	const auto currentValue = m_FenceCounter[m_FrameIndex];
+	m_pQueue->Signal(
+		m_pFence,		//フェンスのポインタ 
+		currentValue); //フェンスに設定する値
+
+	//スワップ処理(m_pSwapChain-> Present())を呼んだので、バックバッファのインデックスを更新
+	m_FrameIndex = m_pSwapChain->GetCurrentBackBufferIndex();
+	if (m_pFence->GetCompletedValue() < m_FenceCounter[m_FrameIndex])
+	{
+		//フェンスの値が更新されるまで待機するイベントを設定
+		m_pFence->SetEventOnCompletion(
+			m_FenceCounter[m_FrameIndex],	//フェンスの値
+			m_FenceEvent);	//イベントのハンドル
+
+		WaitForSingleObjectEx(		//更新の待機
+			m_FenceEvent,	//イベントのハンドル
+			INFINITE,		//タイムアウト時間
+			FALSE);			//完了待機終了条件の設定
+	}
+
+	//次のフレームのフェンスカウンタを増やす
+	m_FenceCounter[m_FrameIndex] = currentValue + 1;
 }
 
 LRESULT App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
