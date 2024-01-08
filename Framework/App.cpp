@@ -182,201 +182,201 @@ bool App::InitD3D()
 	}
 #endif
 
-	//Direct3D12デバイスの生成
-	auto hr = D3D12CreateDevice(
-		nullptr,					//使用するアダプタ. nullptrはデフォルト
-		D3D_FEATURE_LEVEL_11_0,		//デバイスの正常な作成に必要な最小機能レベル
-		IID_PPV_ARGS(m_pDevice.GetAddressOf()));	//生成されたDirect3D12デバイス
+//Direct3D12デバイスの生成
+auto hr = D3D12CreateDevice(
+	nullptr,					//使用するアダプタ. nullptrはデフォルト
+	D3D_FEATURE_LEVEL_11_0,		//デバイスの正常な作成に必要な最小機能レベル
+	IID_PPV_ARGS(m_pDevice.GetAddressOf()));	//生成されたDirect3D12デバイス
+if (FAILED(hr))
+{
+	return false;
+}
+
+//コマンドキューの生成
+{
+	D3D12_COMMAND_QUEUE_DESC desc = {};
+	desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;	//コマンドリストの種類
+	desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;	//コマンドキューの優先度
+	desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;	//コマンドキューのフラグ
+	desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
+
+	hr = m_pDevice->CreateCommandQueue(&desc, IID_PPV_ARGS(m_pQueue.GetAddressOf()));
+	if (FAILED(hr))
+	{
+		return false;
+	}
+}
+
+//スワップチェインの作成
+{
+	//DXGIファクトリーの生成. DXGIファクトリーはビデオグラフィックの設定の列挙や指定に使用したり、スワップチェインの作成に使用する
+	ComPtr<IDXGIFactory4> pFactory = nullptr;
+	hr = CreateDXGIFactory1(IID_PPV_ARGS(pFactory.GetAddressOf()));
 	if (FAILED(hr))
 	{
 		return false;
 	}
 
-	//コマンドキューの生成
-	{
-		D3D12_COMMAND_QUEUE_DESC desc = {};
-		desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;	//コマンドリストの種類
-		desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;	//コマンドキューの優先度
-		desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;	//コマンドキューのフラグ
-		desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
+	//スワップチェインの設定
+	DXGI_SWAP_CHAIN_DESC desc = {};
+	desc.BufferDesc.Width = m_width;	//バックバッファの幅
+	desc.BufferDesc.Height = m_height;	//バックバッファの高さ
+	desc.BufferDesc.RefreshRate.Numerator = 60;	//リフレッシュレートの分母
+	desc.BufferDesc.RefreshRate.Denominator = 1;	//リフレッシュレートの分子
+	desc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;	//スキャンラインの描画順序
+	desc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;	//ウィンドウ描画時のスケーリングの指定. バックバッファのサイズ通りに描画したり、ウィンドウサイズに合わせるなど指定可能
+	desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;	//バックバッファのフォーマット
+	desc.SampleDesc.Count = 1;	//マルチサンプリングの数
+	desc.SampleDesc.Quality = 0;	//マルチサンプリングの品質
+	desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;	//バックバッファの使用法. DXGI_USAGE_RENDER_TARGET_OUTPUTはバックバッファをレンダーターゲットとして使用する
+	desc.BufferCount = FrameCount;	//スワップチェインのバッファ数
+	desc.OutputWindow = m_hWnd;	//ウィンドウハンドル
+	desc.Windowed = TRUE;	//ウィンドウモードかフルスクリーンモードか
+	desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;	//バックバッファ入れ替え時の効果指定. DXGI_SWAP_EFFECT_FLIP_DISCARDはフリップ後にバックバッファの内容を破棄する
+	desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;	//スワップチェインの動作オプション
 
-		hr = m_pDevice->CreateCommandQueue(&desc, IID_PPV_ARGS(m_pQueue.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return false;
-		}
+	//スワップチェインの生成
+	ComPtr<IDXGISwapChain> pSwapChain = nullptr;
+	hr = pFactory->CreateSwapChain(m_pQueue.Get(), &desc, pSwapChain.GetAddressOf());
+	if (FAILED(hr))
+	{
+		pFactory.Reset();
+		return false;
 	}
 
-	//スワップチェインの作成
+	//IDXGISwapChain3: レンダリングされたデータを出力に表示する前に格納するためのサーフェス(=レンダリング結果保存するバッファのこと)を提供する
+	//IDXGISwapChain3ではバック バッファーのインデックスの取得と色空間のサポートが追加されている
+
+	// IDXGISwapChain3の取得
+	hr = pSwapChain->QueryInterface(IID_PPV_ARGS(m_pSwapChain.GetAddressOf()));
+	if (FAILED(hr))
 	{
-		//DXGIファクトリーの生成. DXGIファクトリーはビデオグラフィックの設定の列挙や指定に使用したり、スワップチェインの作成に使用する
-		ComPtr<IDXGIFactory4> pFactory = nullptr;
-		hr = CreateDXGIFactory1(IID_PPV_ARGS(pFactory.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			return false;
-		}
-
-		//スワップチェインの設定
-		DXGI_SWAP_CHAIN_DESC desc = {};
-		desc.BufferDesc.Width = m_width;	//バックバッファの幅
-		desc.BufferDesc.Height = m_height;	//バックバッファの高さ
-		desc.BufferDesc.RefreshRate.Numerator = 60;	//リフレッシュレートの分母
-		desc.BufferDesc.RefreshRate.Denominator = 1;	//リフレッシュレートの分子
-		desc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;	//スキャンラインの描画順序
-		desc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;	//ウィンドウ描画時のスケーリングの指定. バックバッファのサイズ通りに描画したり、ウィンドウサイズに合わせるなど指定可能
-		desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;	//バックバッファのフォーマット
-		desc.SampleDesc.Count = 1;	//マルチサンプリングの数
-		desc.SampleDesc.Quality = 0;	//マルチサンプリングの品質
-		desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;	//バックバッファの使用法. DXGI_USAGE_RENDER_TARGET_OUTPUTはバックバッファをレンダーターゲットとして使用する
-		desc.BufferCount = FrameCount;	//スワップチェインのバッファ数
-		desc.OutputWindow = m_hWnd;	//ウィンドウハンドル
-		desc.Windowed = TRUE;	//ウィンドウモードかフルスクリーンモードか
-		desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;	//バックバッファ入れ替え時の効果指定. DXGI_SWAP_EFFECT_FLIP_DISCARDはフリップ後にバックバッファの内容を破棄する
-		desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;	//スワップチェインの動作オプション
-
-		//スワップチェインの生成
-		ComPtr<IDXGISwapChain> pSwapChain = nullptr;
-		hr = pFactory->CreateSwapChain(m_pQueue.Get(), &desc, pSwapChain.GetAddressOf());
-		if (FAILED(hr))
-		{
-			pFactory.Reset();
-			return false;
-		}
-
-		//IDXGISwapChain3: レンダリングされたデータを出力に表示する前に格納するためのサーフェス(=レンダリング結果保存するバッファのこと)を提供する
-		//IDXGISwapChain3ではバック バッファーのインデックスの取得と色空間のサポートが追加されている
-
-		// IDXGISwapChain3の取得
-		hr = pSwapChain->QueryInterface(IID_PPV_ARGS(m_pSwapChain.GetAddressOf()));
-		if (FAILED(hr))
-		{
-			pFactory.Reset();
-			pSwapChain.Reset();
-			return false;
-		}
-
-		//バックバッファ番号の取得
-		m_FrameIndex = m_pSwapChain->GetCurrentBackBufferIndex();
-
-		//不要になったので解放
 		pFactory.Reset();
 		pSwapChain.Reset();
+		return false;
 	}
 
-	//コマンドアロケータの生成
-	//アロケータはメモリー領域の割り当てを行うオブジェクト
-	//コマンドアロケータはコマンドリストの実行に必要なメモリーを割り当てる
-	{
-		for (auto i = 0; i < FrameCount; i++)
-		{
-			hr = m_pDevice->CreateCommandAllocator(
-				D3D12_COMMAND_LIST_TYPE_DIRECT,	//コマンドリストの種類. D3D12_COMMAND_LIST_TYPE_DIRECT は GPUで実行できるコマンドバッファーを指定
-				IID_PPV_ARGS(m_pCmdAllocator[i].GetAddressOf()));	//生成されたコマンドアロケータ
-			if (FAILED(hr))
-			{
-				return false;
-			}
-		}
-	}
+	//バックバッファ番号の取得
+	m_FrameIndex = m_pSwapChain->GetCurrentBackBufferIndex();
 
-	//コマンドリストの作成
+	//不要になったので解放
+	pFactory.Reset();
+	pSwapChain.Reset();
+}
+
+//コマンドアロケータの生成
+//アロケータはメモリー領域の割り当てを行うオブジェクト
+//コマンドアロケータはコマンドリストの実行に必要なメモリーを割り当てる
+{
+	for (auto i = 0; i < FrameCount; i++)
 	{
-		hr = m_pDevice->CreateCommandList(
-			0,	//コマンドリストのノードマスク. マルチGPUの際に使用するマスク
-			D3D12_COMMAND_LIST_TYPE_DIRECT,	//コマンドリストの種類. CreateCommandAllocator()と同じ
-			m_pCmdAllocator[m_FrameIndex].Get(),	//コマンドアロケータ
-			nullptr,	//パイプラインステートオブジェクト. パイプラインを指定できる. nullptrを指定するとデフォルトのパイプラインが使用される
-			IID_PPV_ARGS(m_pCmdList.GetAddressOf()));	//生成されたコマンドリスト
+		hr = m_pDevice->CreateCommandAllocator(
+			D3D12_COMMAND_LIST_TYPE_DIRECT,	//コマンドリストの種類. D3D12_COMMAND_LIST_TYPE_DIRECT は GPUで実行できるコマンドバッファーを指定
+			IID_PPV_ARGS(m_pCmdAllocator[i].GetAddressOf()));	//生成されたコマンドアロケータ
 		if (FAILED(hr))
 		{
 			return false;
 		}
 	}
+}
 
-	//Direct3Dでは描画先がレンダーターゲットで、そのレンダーターゲットの実態はバックバッファやテクスチャといったリソース.
-	//リソースはメモリ領域を持つオブジェクトはわかっているが、GPU上のどのアドレスのものかはわからない.
-	//また、バッファ容量はわかっても、どのような種類のバッファか(2次元テクスチャ？キューブマップ？)はわからず、パイプライン上でどのように使えばよいかがわからない
-	//そこでリソースをどのように扱うかを指定するのがリソースビューオブジェクト
-	//レンダーターゲットのリソースオブジェクトは、レンダーターゲットビューと呼ばれる
-
-	//レンダーターゲットビューの生成
+//コマンドリストの作成
+{
+	hr = m_pDevice->CreateCommandList(
+		0,	//コマンドリストのノードマスク. マルチGPUの際に使用するマスク
+		D3D12_COMMAND_LIST_TYPE_DIRECT,	//コマンドリストの種類. CreateCommandAllocator()と同じ
+		m_pCmdAllocator[m_FrameIndex].Get(),	//コマンドアロケータ
+		nullptr,	//パイプラインステートオブジェクト. パイプラインを指定できる. nullptrを指定するとデフォルトのパイプラインが使用される
+		IID_PPV_ARGS(m_pCmdList.GetAddressOf()));	//生成されたコマンドリスト
+	if (FAILED(hr))
 	{
-		//レンダーターゲットビューには リソースの生成とディスクリプタヒープの作成が必要
-		//リソースはスワップチェインがもつバッファを使用するため、新規での作成は不要
+		return false;
+	}
+}
 
-		//ディスクリプタヒープの設定. ディスクリプタヒープはディスクリプタを格納するためのメモリ領域(配列のようなもの)
-		D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-		desc.NumDescriptors = FrameCount;	//ディスクリプタの数
-		desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;	//ディスクリプタの種類. D3D12_DESCRIPTOR_HEAP_TYPE_RTVはレンダーターゲットビューを指定
-		desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;	//ディスクリプタヒープのフラグ
-		desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
+//Direct3Dでは描画先がレンダーターゲットで、そのレンダーターゲットの実態はバックバッファやテクスチャといったリソース.
+//リソースはメモリ領域を持つオブジェクトはわかっているが、GPU上のどのアドレスのものかはわからない.
+//また、バッファ容量はわかっても、どのような種類のバッファか(2次元テクスチャ？キューブマップ？)はわからず、パイプライン上でどのように使えばよいかがわからない
+//そこでリソースをどのように扱うかを指定するのがリソースビューオブジェクト
+//レンダーターゲットのリソースオブジェクトは、レンダーターゲットビューと呼ばれる
 
-		//ディスクリプタヒープの生成
-		hr = m_pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(m_pHeapRTV.GetAddressOf()));
+//レンダーターゲットビューの生成
+{
+	//レンダーターゲットビューには リソースの生成とディスクリプタヒープの作成が必要
+	//リソースはスワップチェインがもつバッファを使用するため、新規での作成は不要
+
+	//ディスクリプタヒープの設定. ディスクリプタヒープはディスクリプタを格納するためのメモリ領域(配列のようなもの)
+	D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+	desc.NumDescriptors = FrameCount;	//ディスクリプタの数
+	desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;	//ディスクリプタの種類. D3D12_DESCRIPTOR_HEAP_TYPE_RTVはレンダーターゲットビューを指定
+	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;	//ディスクリプタヒープのフラグ
+	desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
+
+	//ディスクリプタヒープの生成
+	hr = m_pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(m_pHeapRTV.GetAddressOf()));
+	if (FAILED(hr))
+	{
+		return false;
+	}
+
+	//レンダーターゲットビューの作成
+	auto handle = m_pHeapRTV->GetCPUDescriptorHandleForHeapStart();	//ディスクリプタヒープの先頭のハンドルを取得
+	auto incrementSize = m_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);	//ディスクリプタヒープのインクリメントサイズを取得
+
+	for (auto i = 0u; i < FrameCount; i++)
+	{
+		hr = m_pSwapChain->GetBuffer(i, IID_PPV_ARGS(m_pColorBuffers[i].GetAddressOf()));	//スワップチェインからバッファを取得
 		if (FAILED(hr))
 		{
 			return false;
 		}
 
-		//レンダーターゲットビューの作成
-		auto handle = m_pHeapRTV->GetCPUDescriptorHandleForHeapStart();	//ディスクリプタヒープの先頭のハンドルを取得
-		auto incrementSize = m_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);	//ディスクリプタヒープのインクリメントサイズを取得
+		//レンダーターゲットビューの設定
+		D3D12_RENDER_TARGET_VIEW_DESC viewDesc = {};
+		viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;	//フォーマット
+		viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;	//ビューの種類. D3D12_RTV_DIMENSION_TEXTURE2Dは2次元テクスチャを指定
+		viewDesc.Texture2D.MipSlice = 0;	//ミップマップレベルの指定
+		viewDesc.Texture2D.PlaneSlice = 0;	//テクスチャの面の指定(平面を複数枚持つデータではないので0を指定)
 
-		for (auto i = 0u; i < FrameCount; i++)
-		{
-			hr = m_pSwapChain->GetBuffer(i, IID_PPV_ARGS(m_pColorBuffers[i].GetAddressOf()));	//スワップチェインからバッファを取得
-			if (FAILED(hr))
-			{
-				return false;
-			}
+		//レンダーターゲットビューの生成
+		m_pDevice->CreateRenderTargetView(m_pColorBuffers[i].Get(), &viewDesc, handle);
 
-			//レンダーターゲットビューの設定
-			D3D12_RENDER_TARGET_VIEW_DESC viewDesc = {};
-			viewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;	//フォーマット
-			viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;	//ビューの種類. D3D12_RTV_DIMENSION_TEXTURE2Dは2次元テクスチャを指定
-			viewDesc.Texture2D.MipSlice = 0;	//ミップマップレベルの指定
-			viewDesc.Texture2D.PlaneSlice = 0;	//テクスチャの面の指定(平面を複数枚持つデータではないので0を指定)
-
-			//レンダーターゲットビューの生成
-			m_pDevice->CreateRenderTargetView(m_pColorBuffers[i].Get(), &viewDesc, handle);
-
-			m_HandleRTV[i] = handle;
-			handle.ptr += incrementSize;
-		}
+		m_HandleRTV[i] = handle;
+		handle.ptr += incrementSize;
 	}
+}
 
-	//フェンスの作成
+//フェンスの作成
+{
+	//フェンスカウンタのリセット
+	for (auto i = 0; i < FrameCount; i++)
 	{
-		//フェンスカウンタのリセット
-		for (auto i = 0; i < FrameCount; i++)
-		{
-			m_FenceCounter[i] = 0;
-		}
-
-		hr = m_pDevice->CreateFence(
-			m_FenceCounter[m_FrameIndex],	//フェンスの初期値
-			D3D12_FENCE_FLAG_NONE,	//フェンスのフラグ
-			IID_PPV_ARGS(m_pFence.GetAddressOf()));	//生成されたフェンス
-		if (FAILED(hr))
-		{
-			return false;
-		}
-
-		m_FenceCounter[m_FrameIndex]++;
-
-		//描画処理が終わるまで待機するイベントの作成
-		m_FenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-		if (m_FenceEvent == nullptr)
-		{
-			return false;
-		}
+		m_FenceCounter[i] = 0;
 	}
 
-	//コマンドリストを閉じる
-	m_pCmdList->Close();
+	hr = m_pDevice->CreateFence(
+		m_FenceCounter[m_FrameIndex],	//フェンスの初期値
+		D3D12_FENCE_FLAG_NONE,	//フェンスのフラグ
+		IID_PPV_ARGS(m_pFence.GetAddressOf()));	//生成されたフェンス
+	if (FAILED(hr))
+	{
+		return false;
+	}
 
-	return true;
+	m_FenceCounter[m_FrameIndex]++;
+
+	//描画処理が終わるまで待機するイベントの作成
+	m_FenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+	if (m_FenceEvent == nullptr)
+	{
+		return false;
+	}
+}
+
+//コマンドリストを閉じる
+m_pCmdList->Close();
+
+return true;
 }
 
 void App::TermD3D()
@@ -536,6 +536,81 @@ void App::Present(uint32_t interval)
 
 	//次のフレームのフェンスカウンタを増やす
 	m_FenceCounter[m_FrameIndex] = currentValue + 1;
+}
+
+bool App::OnInit()
+{
+	{
+		//頂点バッファの生成
+		//頂点データ
+		Vertex vertices[] = {
+		{DirectX::XMFLOAT3(-1.0f, -1.0f, 0.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f)},
+		{DirectX::XMFLOAT3(1.0f, -1.0f, 0.0f), DirectX::XMFLOAT4(0.0f, 1.0f,0.0f, 1.0f)},
+		{DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f)}
+		};
+
+		//GPUに頂点を送る時、バッファを作成して纏めて送る. この時作成するバッファが頂点バッファ
+		//頂点バッファを作るには、ID3D12Resourcesオブジェクトとして生成し、GPUの仮想アドレス、頂点全体のデータサイズ、1頂点当たりのサイズをD3D12_VERTEX_BUFFER_VIEW構造体に設定する
+		//ID3D12ResourcesオブジェクトはCreateCommittedResource()で作成
+
+		//ヒーププロパティ
+		D3D12_HEAP_PROPERTIES prop = {};
+		prop.Type = D3D12_HEAP_TYPE_UPLOAD;	//ヒープの種類. D3D12_HEAP_TYPE_UPLOADはCPUに書き込み1度、GPU読み込みが1度のデータが適している
+		prop.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;	//CPUページプロパティ. メモリへの書き込みタイミングを指定するものっぽい
+		prop.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;	//メモリプールの指定. プールの方法を指定するもの
+		prop.CreationNodeMask = 0;	//生成されるリソースの場所のノードを指定. マルチGPUの際に使用する
+		prop.VisibleNodeMask = 0;	//リソースが可視できる場所のノードを指定. マルチGPUの際に使用する
+
+		//リソースの指定
+		D3D12_RESOURCE_DESC desc = {};
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;	//リソースの種類. D3D12_RESOURCE_DIMENSION_BUFFERはバッファを指定
+		desc.Alignment = 0;	//リソースのアライメント. D3D12_RESOURCE_DIMENSION_BUFFER 指定時が D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT(=64KB) か0を指定する
+		desc.Width = sizeof(vertices);	//リソースの幅. バッファのサイズを指定. テクスチャの場合は横幅を指定する
+		desc.Height = 1;	//リソースの高さ. バッファの場合は1を指定. テクスチャの場合は縦幅を指定する
+		desc.DepthOrArraySize = 1;	//リソースの深さ. バッファの場合は1を指定. 3次元テクスチャの場合は奥行、テクスチャ配列の場合は配列数を指定する
+		desc.MipLevels = 1;	//ミップマップレベル. バッファの場合は1を指定. テクスチャの場合はミップマップレベルを指定する
+		desc.Format = DXGI_FORMAT_UNKNOWN;	//フォーマット. バッファの場合はDXGI_FORMAT_UNKNOWNを指定. テクスチャの場合はピクセルフォーマットを指定
+		desc.SampleDesc.Count = 1;	//マルチサンプリングの数. バッファの場合は1を指定. テクスチャの場合はマルチサンプリングの数を指定する
+		desc.SampleDesc.Quality = 0;	//マルチサンプリングの品質. バッファの場合は0を指定. テクスチャの場合はマルチサンプリングの品質を指定する
+		desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;	//テクスチャのレイアウト. バッファの場合はD3D12_TEXTURE_LAYOUT_ROW_MAJORを指定
+		desc.Flags = D3D12_RESOURCE_FLAG_NONE;	//リソースのオプションフラグ. 必要な場合はビット論理和で指定する
+
+		//リソースの生成
+		auto hr = m_pDevice->CreateCommittedResource(
+			&prop,
+			D3D12_HEAP_FLAG_NONE,		//ヒープのオプションフラグ. D3D12_HEAP_FLAG_NONEは特に指定なし
+			&desc,
+			D3D12_RESOURCE_STATE_GENERIC_READ,	//リソースの初期状態.　ヒープの種類でD3D12_HEAP_TYPE_UPLOADを指定したので、D3D12_RESOURCE_STATE_GENERIC_READを指定する必要がある
+			nullptr,		//レンダーターゲットと深度ステンシルテクスチャのためのオプション. リソースの種類でD3D12_RESOURCE_DIMENSION_BUFFERを指定したので、nullptrを指定する必要がある
+			IID_PPV_ARGS(m_pVB.GetAddressOf()));
+		if (FAILED(hr))
+		{
+			return false;
+		}
+
+		//頂点データの内容をリソースに書き込む(=マッピング)
+		void* ptr = nullptr;
+		hr = m_pVB->Map(0,		//サブリソース(=ミップマップのデータのまとまり)のインデックス.頂点バッファは1つしかサブリソースがないので0を指定 
+			nullptr,		//マッピング開始オフセット.終了オフセットの指定. 全領域はnullptrを指定
+			&ptr);			//リソースデータへのポインタを受け取るメモリブロックへのポインタ(=リソースデータのポインタのポインタ)
+		if(FAILED(hr))
+		{
+			return false;
+		}
+
+		//memcpy(dest, src, count): src が指すオブジェクトから dest が指すオブジェクトに、count バイトをコピー
+		memcpy(ptr, vertices, sizeof(vertices));
+
+		//マッピング解除
+		m_pVB->Unmap(
+			0,		//サブリソース(=ミップマップのデータのまとまり)のインデックス.頂点バッファは1つしかサブリソースがないので0を指定 
+			nullptr		//マッピングした開始オフセット.終了オフセットの指定. 全領域はnullptrを指定
+		);
+
+		//頂点バッファビューの作成. 描画コマンド作成時に使用
+		m_VBV.BufferLocation = m_pVB->GetGPUVirtualAddress();	//頂点バッファのGPU仮想アドレス
+		m_VBV.SizeInBytes = static_cast<UINT>(sizeof(vertices));	//頂点バッファの全体のサイズ
+	}
 }
 
 LRESULT App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)

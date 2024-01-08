@@ -33,6 +33,12 @@ struct ConstantBufferView
 	T* pBuffer;		//バッファ先頭へのポインタ(バッファとはデータを一時的に保持しておくための記憶領域)
 };
 
+struct Vertex		//頂点データ
+{
+	DirectX::XMFLOAT3 Position;		//位置情報
+	DirectX::XMFLOAT4 Color;			//頂点カラー
+};
+
 class App
 {
 public:
@@ -85,6 +91,8 @@ private:
 	void Render();
 	void WaitGpu();
 	void Present(uint32_t interval);
+
+	bool OnInit();
 
 	static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 };
