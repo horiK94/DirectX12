@@ -610,6 +610,7 @@ bool App::OnInit()
 		//頂点バッファビューの作成. 描画コマンド作成時に使用
 		m_VBV.BufferLocation = m_pVB->GetGPUVirtualAddress();	//頂点バッファのGPU仮想アドレス
 		m_VBV.SizeInBytes = static_cast<UINT>(sizeof(vertices));	//頂点バッファの全体のサイズ
+		m_VBV.StrideInBytes = static_cast<UINT>(sizeof(Vertex));	//1頂点当たりのサイズ
 	}
 }
 
