@@ -15,13 +15,6 @@
 
 template<typename T> using ComPtr = Microsoft::WRL::ComPtr<T>;	// ComPtrは、スマートポインタ. c++標準ライブラリにもunique_ptrやshared_ptrがあるが、ComPtrはMicrsoftで作ったものなので親和性が高い
 
-struct alignas(256) Transform
-{
-	DirectX::XMMATRIX World;	//ワールド行列
-	DirectX::XMMATRIX View;		//ビュー行列
-	DirectX::XMMATRIX Proj;		//プロジェクション行列(射影行列)
-};
-
 template<typename T>
 struct ConstantBufferView
 {
@@ -37,6 +30,14 @@ struct Vertex		//頂点データ
 {
 	DirectX::XMFLOAT3 Position;		//位置情報
 	DirectX::XMFLOAT4 Color;			//頂点カラー
+};
+
+//DirectX12の仕様上、定数バッファはメモリアラインメントが256byteにならないといけない
+struct alignas(256) Transform		//定数バッファ用データ
+{
+	DirectX::XMMATRIX World;	//ワールド行列
+	DirectX::XMMATRIX View;		//ビュー行列
+	DirectX::XMMATRIX Proj;		//プロジェクション行列(射影行列)
 };
 
 class App

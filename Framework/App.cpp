@@ -558,8 +558,8 @@ bool App::OnInit()
 		prop.Type = D3D12_HEAP_TYPE_UPLOAD;	//ヒープの種類. D3D12_HEAP_TYPE_UPLOADはCPUに書き込み1度、GPU読み込みが1度のデータが適している
 		prop.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;	//CPUページプロパティ. メモリへの書き込みタイミングを指定するものっぽい
 		prop.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;	//メモリプールの指定. プールの方法を指定するもの
-		prop.CreationNodeMask = 0;	//生成されるリソースの場所のノードを指定. マルチGPUの際に使用する
-		prop.VisibleNodeMask = 0;	//リソースが可視できる場所のノードを指定. マルチGPUの際に使用する
+		prop.CreationNodeMask = 1;	//生成されるリソースの場所のノードを指定. マルチGPUの際に使用する. 単一GPUの場合は1を指定
+		prop.VisibleNodeMask = 1;	//リソースが可視できる場所のノードを指定. マルチGPUの際に使用する. 単一GPUの場合は1を指定
 
 		//リソースの指定
 		D3D12_RESOURCE_DESC desc = {};
@@ -593,7 +593,7 @@ bool App::OnInit()
 		hr = m_pVB->Map(0,		//サブリソース(=ミップマップのデータのまとまり)のインデックス.頂点バッファは1つしかサブリソースがないので0を指定 
 			nullptr,		//マッピング開始オフセット.終了オフセットの指定. 全領域はnullptrを指定
 			&ptr);			//リソースデータへのポインタを受け取るメモリブロックへのポインタ(=リソースデータのポインタのポインタ)
-		if(FAILED(hr))
+		if (FAILED(hr))
 		{
 			return false;
 		}
@@ -611,6 +611,83 @@ bool App::OnInit()
 		m_VBV.BufferLocation = m_pVB->GetGPUVirtualAddress();	//頂点バッファのGPU仮想アドレス
 		m_VBV.SizeInBytes = static_cast<UINT>(sizeof(vertices));	//頂点バッファの全体のサイズ
 		m_VBV.StrideInBytes = static_cast<UINT>(sizeof(Vertex));	//1頂点当たりのサイズ
+	}
+
+	//定数バッファ: シェーダー内で計算に使う定数値. vertex shaderのWorld, View, Projが該当する
+	//流れは頂点バッファと同様で 定義を用意 → リソース生成 → 定数バッファビューの作成
+	//定数バッファではCPUでデータを変える可能性が多く、GPUの処理中に変えてしまう可能性があるので、レンダーターゲットと同じようにダブルバッファにしておく
+	{
+		//定数バッファ用ディスクリプタヒープの作成
+
+		D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+		desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;	//ディスクリプタヒープの種類. D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAVは定数バッファ、シェーダリソース、アンオーダードアクセスビューを指定
+		desc.NumDescriptors = 1 * FrameCount;	//ディスクリプタの数
+		desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;	//ディスクリプタヒープのフラグ. D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLEはシェーダから見えるディスクリプタヒープを指定
+		desc.NodeMask = 0;	//マルチGPUの際に使用するマスク
+
+		auto hr = m_pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(m_pHeapCBV.GetAddressOf()));
+		if (FAILED(hr))
+		{
+			return false;
+		}
+	}
+
+	//定数バッファの作成
+	{
+		//ヒーププロパティ
+		D3D12_HEAP_PROPERTIES prop = {};
+		prop.Type = D3D12_HEAP_TYPE_UPLOAD;	//ヒープの種類. D3D12_HEAP_TYPE_UPLOADはCPUに書き込み1度、GPU読み込みが1度のデータが適している
+		prop.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;	//CPUページプロパティ. メモリへの書き込みタイミングを指定するものっぽい
+		prop.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;	//メモリプールの指定. プールの方法を指定するもの
+		prop.CreationNodeMask = 1;	//生成されるリソースの場所のノードを指定. マルチGPUの際に使用する. 単一GPUの場合は1を指定
+		prop.VisibleNodeMask = 1;	//リソースが可視できる場所のノードを指定. マルチGPUの際に使用する. 単一GPUの場合は1を指定
+
+		//リソースの指定
+		D3D12_RESOURCE_DESC desc = {};
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;	//リソースの種類. D3D12_RESOURCE_DIMENSION_BUFFERはバッファを指定
+		desc.Alignment = 0;	//リソースのアライメント. D3D12_RESOURCE_DIMENSION_BUFFER 指定時が D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT(=64KB) か0を指定する
+		desc.Width = sizeof(Transform);	//リソースの幅. バッファのサイズを指定. テクスチャの場合は横幅を指定する
+		desc.Height = 1;	//リソースの高さ. バッファの場合は1を指定. テクスチャの場合は縦幅を指定する
+		desc.DepthOrArraySize = 1;	//リソースの深さ. バッファの場合は1を指定. 3次元テクスチャの場合は奥行、テクスチャ配列の場合は配列数を指定する
+		desc.MipLevels = 1;	//ミップマップレベル. バッファの場合は1を指定. テクスチャの場合はミップマップレベルを指定する
+		desc.Format = DXGI_FORMAT_UNKNOWN;	//フォーマット. バッファの場合はDXGI_FORMAT_UNKNOWNを指定. テクスチャの場合はピクセルフォーマットを指定
+		desc.SampleDesc.Count = 1;	//マルチサンプリングの数. バッファの場合は1を指定. テクスチャの場合はマルチサンプリングの数を指定する
+		desc.SampleDesc.Quality = 0;	//マルチサンプリングの品質. バッファの場合は0を指定. テクスチャの場合はマルチサンプリングの品質を指定する
+		desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;	//テクスチャのレイアウト. バッファの場合はD3D12_TEXTURE_LAYOUT_ROW_MAJORを指定
+		desc.Flags = D3D12_RESOURCE_FLAG_NONE;	//リソースのオプションフラグ. 必要な場合はビット論理和で指定する
+
+		auto incrementSize = m_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);	//ディスクリプタヒープのインクリメントサイズを取得
+
+		for (auto i = 0; i < FrameCount; i++)
+		{
+			//各フレームでリソースの生成
+			auto hr = m_pDevice->CreateCommittedResource(
+				&prop,
+				D3D12_HEAP_FLAG_NONE,		//ヒープのオプションフラグ. D3D12_HEAP_FLAG_NONEは特に指定なし
+				&desc,
+				D3D12_RESOURCE_STATE_GENERIC_READ,	//リソースの初期状態.　ヒープの種類でD3D12_HEAP_TYPE_UPLOADを指定したので、D3D12_RESOURCE_STATE_GENERIC_READを指定する必要がある
+				nullptr,		//レンダーターゲットと深度ステンシルテクスチャのためのオプション. リソースの種類でD3D12_RESOURCE_DIMENSION_BUFFERを指定したので、nullptrを指定する必要がある
+				IID_PPV_ARGS(m_pCB[i].GetAddressOf()));		//生成したリソースをm_pCBに入れていく
+			if (FAILED(hr))
+			{
+				return false;
+			}
+
+			//頂点バッファを作るのに、ID3D12Resourcesオブジェクトとして生成し、GPUの仮想アドレス、頂点全体のデータサイズ、1頂点当たりのサイズをD3D12_VERTEX_BUFFER_VIEW構造体に設定した
+			//定数バッファーも同じでGPUに送るために定数バッファビューを構造体D3D12_CONSTANT_BUFFER_VIEWに設定する必要がある
+			//必要な情報はGPU仮想アドレス
+			//typedef struct D3D12_CONSTANT_BUFFER_VIEW_DESC {
+			//	D3D12_GPU_VIRTUAL_ADDRESS BufferLocation;		// GPU仮想アドレス
+			//	UINT                      SizeInBytes;		// 定数バッファのサイズ
+			//} D3D12_CONSTANT_BUFFER_VIEW_DESC;
+			//CreateConstantBufferView(D3D12_CONSTANT_BUFFER_VIEW_DESC, D3D12_CPU_DESCRIPTOR_HANDLE CPUディスクリプタハンドル)
+			//ディスクリプタ: GPUリソース(テクスチャ、バッファなど)の参照を提供するデータ構造
+			//ハンドル: ポインタのポインタ や ファイルや画像、ウィンドウなどを操作したいときに対象を識別するために個々の要素に割り当てられる一意の番号を指す
+
+			auto address = m_pCB[i]->GetGPUVirtualAddress();	//定数バッファのGPU仮想アドレス
+			auto handleCPU = m_pHeapCBV->GetCPUDescriptorHandleForHeapStart();	//CPUディスクリプタヒープの先頭のハンドルを取得
+			auto handleGPU = m_pHeapCBV->GetGPUDescriptorHandleForHeapStart();	//GPUディスクリプタヒープの先頭のハンドルを取得
+		}
 	}
 }
 
